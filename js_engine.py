@@ -233,6 +233,40 @@ def get_js_config_and_audio():
         this.playNoise(0.16, 0.14, 1500, 'bandpass', 0.14);
       }
 
+      playScream() {
+        if (!this.ctx || !this.sfxEnabled) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(640, now);
+        osc.frequency.exponentialRampToValueAtTime(160, now + 0.32);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.34);
+        this.playNoise(0.2, 0.18, 1200, 'lowpass', 0.15);
+      }
+
+      playFootstep() {
+        if (!this.ctx || !this.sfxEnabled) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(85, now);
+        osc.frequency.exponentialRampToValueAtTime(28, now + 0.08);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.09);
+        this.playNoise(0.06, 0.05, 800, 'lowpass', 0.08);
+      }
+
       playHorn() {
         if (!this.ctx || !this.sfxEnabled) return;
         const now = this.ctx.currentTime;
@@ -451,6 +485,11 @@ def get_js_input_handler():
         this.joyThumbEl = document.getElementById('joystickThumb');
         this.touchControlsEl = document.getElementById('touchControls');
 
+        if (this.canvas) {
+          this.canvas.setAttribute('tabindex', '0');
+          try { this.canvas.focus(); } catch (e) {}
+        }
+
         // Always show touch controls on touch devices or small screens
         if (this.touchControlsEl) {
           this.touchControlsEl.style.display = 'flex';
@@ -576,30 +615,34 @@ def get_js_input_handler():
       setupKeyboard() {
         window.addEventListener('keydown', (e) => {
           audio.init();
-          this.keys[e.key.toLowerCase()] = true;
+          const k = e.key.toLowerCase();
+          this.keys[k] = true;
+          if (e.code) this.keys[e.code.toLowerCase()] = true;
           this.keys[e.code] = true;
 
-          if (e.key.toLowerCase() === 'm') {
+          if (k === 'm') {
             audio.musicEnabled = !audio.musicEnabled;
             const btn = document.getElementById('btnMusic');
             if (btn) btn.textContent = `🎵 MUSIC: ${audio.musicEnabled ? 'ON' : 'OFF'}`;
           }
-          if (e.key.toLowerCase() === 'n') {
+          if (k === 'n') {
             audio.sfxEnabled = !audio.sfxEnabled;
             const btn = document.getElementById('btnSfx');
             if (btn) btn.textContent = `🔊 SFX: ${audio.sfxEnabled ? 'ON' : 'OFF'}`;
           }
-          if (e.key.toLowerCase() === 'p') {
+          if (k === 'p') {
             const modal = document.getElementById('helpModal');
             if (modal) modal.classList.toggle('open');
           }
-          if (e.key.toLowerCase() === 'v') {
+          if (k === 'v') {
             if (window.game) window.game.toggleViewMode();
           }
         });
 
         window.addEventListener('keyup', (e) => {
-          this.keys[e.key.toLowerCase()] = false;
+          const k = e.key.toLowerCase();
+          this.keys[k] = false;
+          if (e.code) this.keys[e.code.toLowerCase()] = false;
           this.keys[e.code] = false;
         });
       }
@@ -670,50 +713,27 @@ def get_js_input_handler():
 
         // Direct Joystick Zone Touch & Mouse Support
         if (joyZone) {
-          joyZone.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+          const startJoy = (clientX, clientY, touchId = null) => {
             audio.init();
-            const t = e.targetTouches[0];
-            if (!t) return;
-            this.moveTouchId = t.identifier;
+            this.moveTouchId = touchId;
             const rect = (joyBase || joyZone).getBoundingClientRect();
             this.joyBaseX = rect.left + rect.width / 2;
             this.joyBaseY = rect.top + rect.height / 2;
-            this.handleJoystickMove(t.clientX, t.clientY);
-          }, { passive: false });
-
-          joyZone.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            for (let i = 0; i < e.changedTouches.length; i++) {
-              const t = e.changedTouches[i];
-              if (t.identifier === this.moveTouchId) {
-                this.handleJoystickMove(t.clientX, t.clientY);
-              }
-            }
-          }, { passive: false });
-
-          const endJoy = (e) => {
-            for (let i = 0; i < e.changedTouches.length; i++) {
-              if (e.changedTouches[i].identifier === this.moveTouchId) {
-                this.resetJoystick();
-              }
-            }
+            this.handleJoystickMove(clientX, clientY);
           };
-          joyZone.addEventListener('touchend', endJoy, { passive: false });
-          joyZone.addEventListener('touchcancel', endJoy, { passive: false });
+
+          joyZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const t = e.targetTouches[0] || e.changedTouches[0];
+            if (!t) return;
+            startJoy(t.clientX, t.clientY, t.identifier);
+          }, { passive: false });
 
           // Mouse dragging support on joystick (for desktop testing!)
           joyZone.addEventListener('mousedown', (e) => {
             e.preventDefault();
-            e.stopPropagation();
-            audio.init();
             this.isMouseJoyActive = true;
-            const rect = (joyBase || joyZone).getBoundingClientRect();
-            this.joyBaseX = rect.left + rect.width / 2;
-            this.joyBaseY = rect.top + rect.height / 2;
-            this.handleJoystickMove(e.clientX, e.clientY);
+            startJoy(e.clientX, e.clientY);
           });
         }
 
@@ -741,8 +761,8 @@ def get_js_input_handler():
               continue;
             }
 
-            // Left 45% of screen: Dynamic Movement Joystick
-            if (t.clientX < window.innerWidth * 0.45 && this.moveTouchId === null) {
+            // Left 48% of screen: Dynamic Movement Joystick
+            if (t.clientX < window.innerWidth * 0.48 && this.moveTouchId === null) {
               this.moveTouchId = t.identifier;
               if (joyZone && joyZone.offsetParent !== null) {
                 const rect = (joyBase || joyZone).getBoundingClientRect();
@@ -754,8 +774,8 @@ def get_js_input_handler():
               }
               this.handleJoystickMove(t.clientX, t.clientY);
             }
-            // Right 55% of screen: Camera Aim Look
-            else if (t.clientX >= window.innerWidth * 0.45 && this.lookTouchId === null) {
+            // Right 52% of screen: Camera Aim Look
+            else if (t.clientX >= window.innerWidth * 0.48 && this.lookTouchId === null) {
               this.lookTouchId = t.identifier;
               this.lookPrevX = t.clientX;
               this.lookPrevY = t.clientY;
@@ -819,7 +839,7 @@ def get_js_input_handler():
 
         this.touchMoveX = dx / maxDist;
         this.touchMoveY = dy / maxDist;
-        this.touchSprint = (dist > maxDist * 0.85);
+        this.touchSprint = (dist > maxDist * 0.82);
       }
 
       resetJoystick() {
@@ -835,18 +855,20 @@ def get_js_input_handler():
 
       isDown(key) {
         const k = key.toLowerCase();
-        if (k === 'w' || k === 'arrowup') return !!this.keys[k] || this.touchMoveY < -0.22;
-        if (k === 's' || k === 'arrowdown') return !!this.keys[k] || this.touchMoveY > 0.22;
-        if (k === 'a' || k === 'arrowleft') return !!this.keys[k] || this.touchMoveX < -0.22;
-        if (k === 'd' || k === 'arrowright') return !!this.keys[k] || this.touchMoveX > 0.22;
-        if (k === 'shift') return !!this.keys[k] || this.touchSprint;
-        if (k === ' ') return !!this.keys[k] || this.touchJump;
-        return !!this.keys[k];
+        if (k === 'w' || k === 'arrowup') return !!this.keys['w'] || !!this.keys['keyw'] || !!this.keys['arrowup'] || this.touchMoveY < -0.18;
+        if (k === 's' || k === 'arrowdown') return !!this.keys['s'] || !!this.keys['keys'] || !!this.keys['arrowdown'] || this.touchMoveY > 0.18;
+        if (k === 'a' || k === 'arrowleft') return !!this.keys['a'] || !!this.keys['keya'] || !!this.keys['arrowleft'] || this.touchMoveX < -0.18;
+        if (k === 'd' || k === 'arrowright') return !!this.keys['d'] || !!this.keys['keyd'] || !!this.keys['arrowright'] || this.touchMoveX > 0.18;
+        if (k === 'shift') return !!this.keys['shift'] || !!this.keys['shiftleft'] || !!this.keys['shiftright'] || this.touchSprint;
+        if (k === ' ') return !!this.keys[' '] || !!this.keys['space'] || this.touchJump;
+        return !!this.keys[k] || !!this.keys['key' + k];
       }
 
       wasJustPressed(key) {
         const k = key.toLowerCase();
-        return !!this.keys[k] && !this.prevKeys[k];
+        const cur = !!this.keys[k] || !!this.keys['key' + k];
+        const prev = !!this.prevKeys[k] || !!this.prevKeys['key' + k];
+        return cur && !prev;
       }
 
       update() {
