@@ -456,7 +456,7 @@
     </div>
 
     <!-- Mobile Touch Controls Overlay -->
-    <div id="touchControls" class="touch-overlay" style="display: none;">
+    <div id="touchControls" class="touch-overlay">
       <!-- Left Virtual Joystick Zone -->
       <div id="joystickZone" class="joystick-zone">
         <div id="joystickBase" class="joystick-base">
@@ -489,6 +489,7 @@
   <!-- Top Retro Control Bar -->
   <div class="top-controls">
     <button id="btnView" class="btn-retro active-pink">👁️ VIEW: FPP [V]</button>
+    <button id="btnTouchToggle" class="btn-retro">🕹️ TOUCH: ON</button>
     <button id="btnMusic" class="btn-retro">🎵 MUSIC: ON</button>
     <button id="btnSfx" class="btn-retro">🔊 SFX: ON</button>
     <button id="btnCrt" class="btn-retro">📺 CRT: ON</button>
@@ -967,9 +968,13 @@
         this.prevKeys = {};
         this.mouseX = 0;
         this.mouseY = 0;
+        this.prevMouseX = 0;
+        this.prevMouseY = 0;
+        this.hasPrevMouse = false;
         this._mouseDown = false;
         this._rightMouseDown = false;
         this.isPointerLocked = false;
+        this.isMouseJoyActive = false;
 
         // Device detection
         this.isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 900);
@@ -1000,14 +1005,20 @@
 
         this.canvas = document.getElementById('gameCanvas');
         this.container = document.getElementById('canvasContainer');
+        this.joyZoneEl = document.getElementById('joystickZone');
         this.joyBaseEl = document.getElementById('joystickBase');
         this.joyThumbEl = document.getElementById('joystickThumb');
         this.touchControlsEl = document.getElementById('touchControls');
 
-        if (this.isTouchDevice && this.touchControlsEl) {
+        // Always show touch controls on touch devices or small screens
+        if (this.touchControlsEl) {
           this.touchControlsEl.style.display = 'flex';
-          const pPrompt = document.getElementById('pointerPrompt');
-          if (pPrompt) pPrompt.style.display = 'none';
+        }
+
+        const pPrompt = document.getElementById('pointerPrompt');
+        if (pPrompt && this.isTouchDevice) {
+          pPrompt.textContent = 'DRAG SCREEN TO AIM / USE JOYSTICK TO MOVE';
+          setTimeout(() => { if (pPrompt) pPrompt.style.opacity = '0'; }, 3500);
         }
 
         this.setupMouseAndPointerLock();
@@ -1032,23 +1043,36 @@
       }
 
       setupMouseAndPointerLock() {
-        this.canvas.addEventListener('click', () => {
+        const tryLock = (e) => {
           audio.init();
-          if (!this.isTouchDevice && !this.isPointerLocked && document.pointerLockElement !== this.canvas) {
-            this.canvas.requestPointerLock = this.canvas.requestPointerLock || this.canvas.mozRequestPointerLock;
-            if (this.canvas.requestPointerLock) {
-              this.canvas.requestPointerLock();
+          // Never lock if clicking on top control buttons, modal, action buttons or joystick
+          if (e && e.target && e.target.closest && e.target.closest('.top-controls, .touch-actions, .joystick-zone, .modal-card, button, a')) {
+            return;
+          }
+          if (!this.isPointerLocked && document.pointerLockElement !== this.canvas) {
+            const req = this.canvas.requestPointerLock || this.canvas.mozRequestPointerLock || this.canvas.webkitRequestPointerLock;
+            if (req) {
+              try {
+                req.call(this.canvas);
+              } catch (err) {
+                console.warn('Pointer lock request error:', err);
+              }
             }
           }
-        });
+        };
+
+        this.canvas.addEventListener('click', tryLock);
+        if (this.container) {
+          this.container.addEventListener('click', tryLock);
+        }
 
         document.addEventListener('pointerlockchange', () => {
           this.isPointerLocked = (document.pointerLockElement === this.canvas);
           const prompt = document.getElementById('pointerPrompt');
-          if (prompt && !this.isTouchDevice) {
+          if (prompt) {
             if (this.isPointerLocked) {
               prompt.style.opacity = '0';
-            } else {
+            } else if (!this.isTouchDevice) {
               prompt.textContent = 'CLICK GAME TO LOCK FIRST-PERSON MOUSE AIM [ESC TO UNLOCK]';
               prompt.style.opacity = '1';
             }
@@ -1060,31 +1084,35 @@
           this.mouseY = e.clientY;
 
           if (this.isPointerLocked) {
-            const movementX = e.movementX || e.mozMovementX || 0;
-            const movementY = e.movementY || e.mozMovementY || 0;
+            const movementX = (e.movementX !== undefined) ? e.movementX : (e.mozMovementX || 0);
+            const movementY = (e.movementY !== undefined) ? e.movementY : (e.mozMovementY || 0);
 
             this.yaw += movementX * this.mouseSensitivity;
             this.pitch -= movementY * this.mouseSensitivity;
-
-            const maxPitch = 1.42;
-            if (this.pitch > maxPitch) this.pitch = maxPitch;
-            if (this.pitch < -maxPitch) this.pitch = -maxPitch;
-          } else {
-            // Drag or cursor tracking when pointer lock is not active (e.g. desktop windowed)
-            if (this._mouseDown && window.game && window.game.viewMode === 'FPP') {
-              const dx = e.movementX || 0;
-              const dy = e.movementY || 0;
+          } else if (this._mouseDown && !this.isMouseJoyActive) {
+            // Drag mouse to look around when pointer lock is not engaged
+            if (this.hasPrevMouse) {
+              const dx = e.clientX - this.prevMouseX;
+              const dy = e.clientY - this.prevMouseY;
               this.yaw += dx * this.mouseSensitivity;
               this.pitch -= dy * this.mouseSensitivity;
-              const maxPitch = 1.42;
-              if (this.pitch > maxPitch) this.pitch = maxPitch;
-              if (this.pitch < -maxPitch) this.pitch = -maxPitch;
             }
           }
+
+          this.prevMouseX = e.clientX;
+          this.prevMouseY = e.clientY;
+          this.hasPrevMouse = true;
+
+          const maxPitch = 1.42;
+          if (this.pitch > maxPitch) this.pitch = maxPitch;
+          if (this.pitch < -maxPitch) this.pitch = -maxPitch;
         });
 
         window.addEventListener('mousedown', (e) => {
           audio.init();
+          if (e.target && e.target.closest && e.target.closest('.top-controls, .touch-actions, .joystick-zone, .modal-card, button, a')) {
+            return;
+          }
           if (e.button === 0) this._mouseDown = true;
           if (e.button === 2) this._rightMouseDown = true;
         });
@@ -1136,18 +1164,21 @@
       }
 
       setupTouchControls() {
-        const joyZone = document.getElementById('joystickZone');
+        const joyZone = this.joyZoneEl;
+        const joyBase = this.joyBaseEl;
         const fireBtn = document.getElementById('btnTouchFire');
         const jumpBtn = document.getElementById('btnTouchJump');
         const carBtn = document.getElementById('btnTouchCar');
         const adsBtn = document.getElementById('btnTouchAds');
         const wepBtn = document.getElementById('btnTouchWeapon');
 
-        // Touch buttons binding
+        // Helper to bind action buttons for BOTH touch and mouse click
         const bindButton = (btn, onDown, onUp) => {
           if (!btn) return;
+          // Touch events
           btn.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             audio.init();
             btn.classList.add('touch-active');
             onDown();
@@ -1155,11 +1186,31 @@
 
           btn.addEventListener('touchend', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             btn.classList.remove('touch-active');
             onUp();
           }, { passive: false });
 
           btn.addEventListener('touchcancel', () => {
+            btn.classList.remove('touch-active');
+            onUp();
+          });
+
+          // Mouse events (for desktop click testing)
+          btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            audio.init();
+            btn.classList.add('touch-active');
+            onDown();
+          });
+
+          btn.addEventListener('mouseup', (e) => {
+            btn.classList.remove('touch-active');
+            onUp();
+          });
+
+          btn.addEventListener('mouseleave', () => {
             btn.classList.remove('touch-active');
             onUp();
           });
@@ -1176,23 +1227,84 @@
           }
         }, () => {});
 
-        // Screen Touch Listener for Virtual Joystick (Left) and Camera Aim Drag (Right)
+        // Direct Joystick Zone Touch & Mouse Support
+        if (joyZone) {
+          joyZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            audio.init();
+            const t = e.targetTouches[0];
+            if (!t) return;
+            this.moveTouchId = t.identifier;
+            const rect = (joyBase || joyZone).getBoundingClientRect();
+            this.joyBaseX = rect.left + rect.width / 2;
+            this.joyBaseY = rect.top + rect.height / 2;
+            this.handleJoystickMove(t.clientX, t.clientY);
+          }, { passive: false });
+
+          joyZone.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              const t = e.changedTouches[i];
+              if (t.identifier === this.moveTouchId) {
+                this.handleJoystickMove(t.clientX, t.clientY);
+              }
+            }
+          }, { passive: false });
+
+          const endJoy = (e) => {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+              if (e.changedTouches[i].identifier === this.moveTouchId) {
+                this.resetJoystick();
+              }
+            }
+          };
+          joyZone.addEventListener('touchend', endJoy, { passive: false });
+          joyZone.addEventListener('touchcancel', endJoy, { passive: false });
+
+          // Mouse dragging support on joystick (for desktop testing!)
+          joyZone.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            audio.init();
+            this.isMouseJoyActive = true;
+            const rect = (joyBase || joyZone).getBoundingClientRect();
+            this.joyBaseX = rect.left + rect.width / 2;
+            this.joyBaseY = rect.top + rect.height / 2;
+            this.handleJoystickMove(e.clientX, e.clientY);
+          });
+        }
+
+        window.addEventListener('mousemove', (e) => {
+          if (this.isMouseJoyActive) {
+            this.handleJoystickMove(e.clientX, e.clientY);
+          }
+        });
+
+        window.addEventListener('mouseup', () => {
+          if (this.isMouseJoyActive) {
+            this.resetJoystick();
+          }
+        });
+
+        // Global Window Touch Listener (Floating Joystick on left & Camera Look on right)
         window.addEventListener('touchstart', (e) => {
           audio.init();
           for (let i = 0; i < e.changedTouches.length; i++) {
             const t = e.changedTouches[i];
             const target = t.target;
 
-            // Check if touch is on a touch button
-            if (target && target.closest && target.closest('.btn-touch, .btn-retro, .modal-card')) {
+            // Ignore if touch was on action buttons, top bar, or modal
+            if (target && target.closest && target.closest('.top-controls, .touch-actions, .joystick-zone, .modal-card, button, a')) {
               continue;
             }
 
-            // Left 45% of screen: Movement Joystick
+            // Left 45% of screen: Dynamic Movement Joystick
             if (t.clientX < window.innerWidth * 0.45 && this.moveTouchId === null) {
               this.moveTouchId = t.identifier;
-              if (joyZone) {
-                const rect = joyZone.getBoundingClientRect();
+              if (joyZone && joyZone.offsetParent !== null) {
+                const rect = (joyBase || joyZone).getBoundingClientRect();
                 this.joyBaseX = rect.left + rect.width / 2;
                 this.joyBaseY = rect.top + rect.height / 2;
               } else {
@@ -1201,7 +1313,7 @@
               }
               this.handleJoystickMove(t.clientX, t.clientY);
             }
-            // Right of screen: Camera Aim Look
+            // Right 55% of screen: Camera Aim Look
             else if (t.clientX >= window.innerWidth * 0.45 && this.lookTouchId === null) {
               this.lookTouchId = t.identifier;
               this.lookPrevX = t.clientX;
@@ -1238,13 +1350,7 @@
           for (let i = 0; i < e.changedTouches.length; i++) {
             const t = e.changedTouches[i];
             if (t.identifier === this.moveTouchId) {
-              this.moveTouchId = null;
-              this.touchMoveX = 0;
-              this.touchMoveY = 0;
-              this.touchSprint = false;
-              if (this.joyThumbEl) {
-                this.joyThumbEl.style.transform = 'translate(-50%, -50%)';
-              }
+              this.resetJoystick();
             } else if (t.identifier === this.lookTouchId) {
               this.lookTouchId = null;
             }
@@ -1258,7 +1364,7 @@
       handleJoystickMove(clientX, clientY) {
         let dx = clientX - this.joyBaseX;
         let dy = clientY - this.joyBaseY;
-        const maxDist = 48;
+        const maxDist = 45;
         const dist = Math.hypot(dx, dy);
 
         if (dist > maxDist) {
@@ -1273,6 +1379,17 @@
         this.touchMoveX = dx / maxDist;
         this.touchMoveY = dy / maxDist;
         this.touchSprint = (dist > maxDist * 0.85);
+      }
+
+      resetJoystick() {
+        this.moveTouchId = null;
+        this.isMouseJoyActive = false;
+        this.touchMoveX = 0;
+        this.touchMoveY = 0;
+        this.touchSprint = false;
+        if (this.joyThumbEl) {
+          this.joyThumbEl.style.transform = 'translate(-50%, -50%)';
+        }
       }
 
       isDown(key) {
@@ -1293,6 +1410,8 @@
 
       update() {
         this.prevKeys = { ...this.keys };
+        this.touchCarTrigger = false;
+        this.touchJumpTrigger = false;
       }
     }
 
@@ -4945,6 +5064,7 @@
       window.game.start();
 
       const btnView = document.getElementById('btnView');
+      const btnTouchToggle = document.getElementById('btnTouchToggle');
       const btnMusic = document.getElementById('btnMusic');
       const btnSfx = document.getElementById('btnSfx');
       const btnCrt = document.getElementById('btnCrt');
@@ -4957,6 +5077,17 @@
       btnView.addEventListener('click', () => {
         window.game.toggleViewMode();
       });
+
+      if (btnTouchToggle) {
+        btnTouchToggle.addEventListener('click', () => {
+          const tc = document.getElementById('touchControls');
+          if (tc) {
+            const isHidden = (tc.style.display === 'none');
+            tc.style.display = isHidden ? 'flex' : 'none';
+            btnTouchToggle.textContent = `🕹️ TOUCH: ${isHidden ? 'ON' : 'OFF'}`;
+          }
+        });
+      }
 
       btnMusic.addEventListener('click', () => {
         audio.init();

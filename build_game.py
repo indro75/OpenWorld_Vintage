@@ -503,7 +503,7 @@ def get_html_elements():
     </div>
 
     <!-- Mobile Touch Controls Overlay -->
-    <div id="touchControls" class="touch-overlay" style="display: none;">
+    <div id="touchControls" class="touch-overlay">
       <!-- Left Virtual Joystick Zone -->
       <div id="joystickZone" class="joystick-zone">
         <div id="joystickBase" class="joystick-base">
@@ -536,6 +536,7 @@ def get_html_elements():
   <!-- Top Retro Control Bar -->
   <div class="top-controls">
     <button id="btnView" class="btn-retro active-pink">👁️ VIEW: FPP [V]</button>
+    <button id="btnTouchToggle" class="btn-retro">🕹️ TOUCH: ON</button>
     <button id="btnMusic" class="btn-retro">🎵 MUSIC: ON</button>
     <button id="btnSfx" class="btn-retro">🔊 SFX: ON</button>
     <button id="btnCrt" class="btn-retro">📺 CRT: ON</button>

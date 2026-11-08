@@ -1068,6 +1068,7 @@ def get_js_game_engine_and_hud():
       window.game.start();
 
       const btnView = document.getElementById('btnView');
+      const btnTouchToggle = document.getElementById('btnTouchToggle');
       const btnMusic = document.getElementById('btnMusic');
       const btnSfx = document.getElementById('btnSfx');
       const btnCrt = document.getElementById('btnCrt');
@@ -1080,6 +1081,17 @@ def get_js_game_engine_and_hud():
       btnView.addEventListener('click', () => {
         window.game.toggleViewMode();
       });
+
+      if (btnTouchToggle) {
+        btnTouchToggle.addEventListener('click', () => {
+          const tc = document.getElementById('touchControls');
+          if (tc) {
+            const isHidden = (tc.style.display === 'none');
+            tc.style.display = isHidden ? 'flex' : 'none';
+            btnTouchToggle.textContent = `🕹️ TOUCH: ${isHidden ? 'ON' : 'OFF'}`;
+          }
+        });
+      }
 
       btnMusic.addEventListener('click', () => {
         audio.init();
