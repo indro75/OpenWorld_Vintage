@@ -73,14 +73,19 @@ def get_js_game_engine_and_hud():
       }
 
       resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
         const w = window.innerWidth;
         const h = window.innerHeight;
-        this.glCanvas.width = w;
-        this.glCanvas.height = h;
+        this.glCanvas.width = Math.floor(w * dpr);
+        this.glCanvas.height = Math.floor(h * dpr);
+        this.glCanvas.style.width = w + 'px';
+        this.glCanvas.style.height = h + 'px';
         this.hudCanvas.width = w;
         this.hudCanvas.height = h;
+        this.hudCanvas.style.width = w + 'px';
+        this.hudCanvas.style.height = h + 'px';
         if (this.renderer && this.renderer.gl) {
-          this.renderer.gl.viewport(0, 0, w, h);
+          this.renderer.gl.viewport(0, 0, this.glCanvas.width, this.glCanvas.height);
         }
       }
 
@@ -98,7 +103,7 @@ def get_js_game_engine_and_hud():
       }
 
       setupInitialEntities() {
-        const carTypes = ['sports', 'muscle', 'sedan', 'taxi', 'police', 'van'];
+        const carTypes = ['sports', 'muscle', 'sedan', 'taxi', 'van'];
 
         // Malibu Club Parked Cars
         this.vehicles.push(new Vehicle(1020, 680, 0, 'sports'));
@@ -341,10 +346,11 @@ def get_js_game_engine_and_hud():
               c2.vx = tempVx * 0.5;
               c2.vy = tempVy * 0.5;
 
-              if ((c1 === this.player.inVehicle && c2.isPolice) || (c2 === this.player.inVehicle && c1.isPolice)) {
-                this.police.addHeat(40);
+              const relSpeed = Math.hypot(tempVx - c2.vx, tempVy - c2.vy);
+              if (((c1 === this.player.inVehicle && c2.isPolice) || (c2 === this.player.inVehicle && c1.isPolice)) && relSpeed > 140) {
+                this.police.addHeat(20);
               }
-              if (Math.hypot(tempVx, tempVy) > 90) audio.playCrash(0.25);
+              if (relSpeed > 90) audio.playCrash(0.25);
             }
           }
         }
@@ -355,7 +361,8 @@ def get_js_game_engine_and_hud():
             for (const ped of this.pedestrians) {
               if (ped.state === 'DEAD') continue;
               if (Math.hypot(car.x - ped.x, car.y - ped.y) < car.width * 0.8) {
-                ped.takeDamage(80, this.player);
+                const attacker = (car.driver === this.player) ? this.player : null;
+                ped.takeDamage(80, attacker);
                 audio.playCrash(0.18);
               }
             }
@@ -751,8 +758,11 @@ def get_js_game_engine_and_hud():
         const h = this.hudCanvas.height;
         ctx.clearRect(0, 0, w, h);
 
-        const hudX = w - 240;
-        const hudY = 18;
+        const isMobile = w < 768;
+        const hudW = isMobile ? 180 : 220;
+        const hudH = isMobile ? 130 : 160;
+        const hudX = w - hudW - (isMobile ? 10 : 20);
+        const hudY = isMobile ? 42 : 18;
 
         // Tactical HUD Panel
         ctx.save();
@@ -762,63 +772,67 @@ def get_js_game_engine_and_hud():
         ctx.shadowColor = 'rgba(0, 243, 255, 0.35)';
         ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.roundRect(hudX, hudY, 220, 160, 6);
+        ctx.roundRect(hudX, hudY, hudW, hudH, 6);
         ctx.fill();
         ctx.stroke();
         ctx.shadowBlur = 0;
 
+        const barW = isMobile ? 105 : 140;
+        const barH = isMobile ? 10 : 12;
+
         // Health Bar
         ctx.fillStyle = '#ff007f';
-        ctx.font = 'bold 12px Impact, sans-serif';
-        ctx.fillText('HEALTH', hudX + 12, hudY + 22);
+        ctx.font = isMobile ? 'bold 10px Impact, sans-serif' : 'bold 12px Impact, sans-serif';
+        ctx.fillText('HEALTH', hudX + 10, hudY + (isMobile ? 18 : 22));
         ctx.fillStyle = '#221122';
-        ctx.fillRect(hudX + 65, hudY + 12, 140, 12);
+        ctx.fillRect(hudX + (isMobile ? 58 : 65), hudY + (isMobile ? 9 : 12), barW, barH);
         ctx.fillStyle = '#ff007f';
         ctx.shadowColor = '#ff007f';
         ctx.shadowBlur = 6;
-        ctx.fillRect(hudX + 65, hudY + 12, (this.player.health / this.player.maxHealth) * 140, 12);
+        ctx.fillRect(hudX + (isMobile ? 58 : 65), hudY + (isMobile ? 9 : 12), (this.player.health / this.player.maxHealth) * barW, barH);
         ctx.shadowBlur = 0;
 
         // Armor Bar
         ctx.fillStyle = '#00f3ff';
-        ctx.fillText('ARMOR', hudX + 12, hudY + 44);
+        ctx.fillText('ARMOR', hudX + 10, hudY + (isMobile ? 36 : 44));
         ctx.fillStyle = '#11222b';
-        ctx.fillRect(hudX + 65, hudY + 34, 140, 12);
+        ctx.fillRect(hudX + (isMobile ? 58 : 65), hudY + (isMobile ? 27 : 34), barW, barH);
         ctx.fillStyle = '#00f3ff';
         ctx.shadowColor = '#00f3ff';
         ctx.shadowBlur = 6;
-        ctx.fillRect(hudX + 65, hudY + 34, (this.player.armor / this.player.maxArmor) * 140, 12);
+        ctx.fillRect(hudX + (isMobile ? 58 : 65), hudY + (isMobile ? 27 : 34), (this.player.armor / this.player.maxArmor) * barW, barH);
         ctx.shadowBlur = 0;
 
         // Cash Counter
-        ctx.font = '900 18px monospace';
+        ctx.font = isMobile ? '900 15px monospace' : '900 18px monospace';
         ctx.fillStyle = '#00ff66';
         ctx.shadowColor = '#00ff66';
         ctx.shadowBlur = 8;
         const cashStr = '$' + String(this.player.cash).padStart(7, '0');
-        ctx.fillText(cashStr, hudX + 12, hudY + 76);
+        ctx.fillText(cashStr, hudX + 10, hudY + (isMobile ? 62 : 76));
         ctx.shadowBlur = 0;
 
         // Weapon & Ammo
         const wep = this.player.weapons[this.player.weaponIdx];
-        ctx.font = 'bold 13px Impact, sans-serif';
+        ctx.font = isMobile ? 'bold 11px Impact, sans-serif' : 'bold 13px Impact, sans-serif';
         ctx.fillStyle = '#ffe600';
-        ctx.fillText(wep.name, hudX + 12, hudY + 102);
+        ctx.fillText(wep.name, hudX + 10, hudY + (isMobile ? 84 : 102));
 
-        ctx.font = 'bold 13px monospace';
+        ctx.font = isMobile ? 'bold 11px monospace' : 'bold 13px monospace';
         ctx.fillStyle = '#ffffff';
         const ammoStr = wep.ammo === Infinity ? '∞' : String(wep.ammo);
-        ctx.fillText(`AMMO: [ ${ammoStr} ]`, hudX + 120, hudY + 102);
+        ctx.fillText(`[ ${ammoStr} ]`, hudX + (isMobile ? 110 : 120), hudY + (isMobile ? 84 : 102));
 
         // Wanted Stars (1 to 5)
-        const starX = hudX + 16;
-        const starY = hudY + 132;
+        const starX = hudX + (isMobile ? 12 : 16);
+        const starY = hudY + (isMobile ? 108 : 132);
+        const starGap = isMobile ? 30 : 38;
         const isBlinking = this.police.evading && Math.floor(this.police.flashTimer) % 2 === 0;
 
         for (let i = 1; i <= 5; i++) {
           const active = i <= this.police.wantedLevel;
           ctx.save();
-          ctx.font = '20px sans-serif';
+          ctx.font = isMobile ? '16px sans-serif' : '20px sans-serif';
           if (active) {
             if (isBlinking) {
               ctx.fillStyle = 'rgba(150, 150, 150, 0.4)';
@@ -830,49 +844,51 @@ def get_js_game_engine_and_hud():
           } else {
             ctx.fillStyle = 'rgba(60, 60, 80, 0.5)';
           }
-          ctx.fillText('★', starX + (i - 1) * 38, starY);
+          ctx.fillText('★', starX + (i - 1) * starGap, starY);
           ctx.restore();
         }
 
         // Evading Countdown
         if (this.police.evading && this.police.wantedLevel > 0) {
-          ctx.font = 'bold 11px Impact, sans-serif';
+          ctx.font = isMobile ? 'bold 10px Impact, sans-serif' : 'bold 11px Impact, sans-serif';
           ctx.fillStyle = '#ffe600';
-          ctx.fillText(`EVADING: ${Math.ceil(this.police.cooldownTimer)}s`, hudX + 12, hudY + 154);
+          ctx.fillText(`EVADING: ${Math.ceil(this.police.cooldownTimer)}s`, hudX + 10, hudY + (isMobile ? 124 : 154));
         }
         ctx.restore();
 
         // Speedometer when in Car
         if (this.player.inVehicle) {
           const car = this.player.inVehicle;
-          const spdX = w / 2 - 110;
-          const spdY = h - 42;
+          const spdW = isMobile ? 160 : 220;
+          const spdX = w / 2 - spdW / 2;
+          const spdY = isMobile ? 12 : h - 42;
 
           ctx.save();
           ctx.fillStyle = 'rgba(12, 12, 22, 0.9)';
           ctx.strokeStyle = '#ff007f';
           ctx.lineWidth = 1;
-          ctx.fillRect(spdX, spdY, 220, 28);
-          ctx.strokeRect(spdX, spdY, 220, 28);
+          ctx.fillRect(spdX, spdY, spdW, 28);
+          ctx.strokeRect(spdX, spdY, spdW, 28);
 
-          ctx.font = 'bold 12px Impact, sans-serif';
+          ctx.font = 'bold 11px Impact, sans-serif';
           ctx.fillStyle = '#ff007f';
-          ctx.fillText('MPH', spdX + 8, spdY + 19);
+          ctx.fillText('MPH', spdX + 6, spdY + 19);
 
           const mph = Math.floor((car.speed / car.maxSpeed) * 140);
-          ctx.font = '900 14px monospace';
+          ctx.font = '900 13px monospace';
           ctx.fillStyle = '#00f3ff';
-          ctx.fillText(String(mph).padStart(3, ' '), spdX + 36, spdY + 19);
+          ctx.fillText(String(mph).padStart(3, ' '), spdX + 32, spdY + 19);
 
           ctx.fillStyle = '#ff007f';
           ctx.shadowColor = '#ff007f';
           ctx.shadowBlur = 6;
           const ratio = Math.min(1, car.speed / car.maxSpeed);
-          ctx.fillRect(spdX + 75, spdY + 8, ratio * 70, 12);
+          const barWidth = isMobile ? 40 : 70;
+          ctx.fillRect(spdX + 65, spdY + 8, ratio * barWidth, 12);
 
-          ctx.font = 'bold 11px Impact, sans-serif';
+          ctx.font = 'bold 10px Impact, sans-serif';
           ctx.fillStyle = '#00f3ff';
-          ctx.fillText('[F] EXIT', spdX + 160, spdY + 19);
+          ctx.fillText(isMobile ? '[F] / 🚗' : '[F] EXIT', spdX + (isMobile ? 112 : 160), spdY + 19);
           ctx.restore();
         }
 
@@ -890,22 +906,25 @@ def get_js_game_engine_and_hud():
           }
           if (nearestCar) {
             ctx.save();
-            const text = nearestCar.driver ? '[F] JACK VEHICLE' : '[F] ENTER VEHICLE';
+            const actionVerb = nearestCar.driver ? 'JACK' : 'ENTER';
+            const text = isMobile ? `TAP 🚗 TO ${actionVerb}` : `[F] ${actionVerb} VEHICLE`;
             ctx.font = '900 13px Impact, sans-serif';
             ctx.fillStyle = 'rgba(14, 14, 26, 0.92)';
             ctx.strokeStyle = '#00f3ff';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.roundRect(w / 2 - 70, h / 2 + 35, 140, 28, 4);
+            ctx.roundRect(w / 2 - 80, h / 2 + 35, 160, 28, 4);
             ctx.fill();
             ctx.stroke();
             ctx.fillStyle = '#00f3ff';
-            ctx.fillText(text, w / 2 - 58, h / 2 + 54);
+            ctx.textAlign = 'center';
+            ctx.fillText(text, w / 2, h / 2 + 54);
+            ctx.textAlign = 'start';
             ctx.restore();
           }
         }
 
-        // Circular Radar Minimap (Lower Left)
+        // Circular Radar Minimap (Lower Left on Desktop, Upper Left on Mobile)
         this.renderMinimap(ctx);
 
         // Floating Notifications (Center Left)
@@ -928,9 +947,10 @@ def get_js_game_engine_and_hud():
 
       renderMinimap(ctx) {
         ctx.save();
-        const mapSize = 175;
-        const mapX = 20;
-        const mapY = this.hudCanvas.height - mapSize - 20;
+        const isMobile = this.hudCanvas.width < 768;
+        const mapSize = isMobile ? 115 : 175;
+        const mapX = isMobile ? 14 : 20;
+        const mapY = isMobile ? 54 : this.hudCanvas.height - mapSize - 20;
 
         ctx.beginPath();
         ctx.arc(mapX + mapSize / 2, mapY + mapSize / 2, mapSize / 2, 0, Math.PI * 2);

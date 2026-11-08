@@ -23,7 +23,9 @@ def build_full_html():
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>VICE CITY '86 - First-Person Open World 3D</title>
   <style>
 {get_css()}
@@ -336,6 +338,143 @@ def get_css():
       margin-top: 20px;
       text-align: center;
     }
+
+    /* Mobile Touch Controls & Virtual Joystick */
+    .touch-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 35;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding: 16px 20px calc(16px + env(safe-area-inset-bottom, 0px)) 20px;
+    }
+    .joystick-zone {
+      pointer-events: auto;
+      width: 130px;
+      height: 130px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+    }
+    .joystick-base {
+      position: relative;
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0, 243, 255, 0.15) 0%, rgba(12, 12, 28, 0.6) 70%);
+      border: 2px solid rgba(0, 243, 255, 0.5);
+      box-shadow: 0 0 15px rgba(0, 243, 255, 0.25);
+    }
+    .joystick-thumb {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #ff007f 0%, #a80053 100%);
+      border: 2px solid #ffffff;
+      box-shadow: 0 0 12px #ff007f;
+      pointer-events: none;
+      transition: transform 0.05s ease-out;
+    }
+    .touch-actions {
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 12px;
+      touch-action: none;
+    }
+    .touch-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 20px;
+      box-shadow: 0 0 12px rgba(0, 0, 0, 0.6);
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      transition: transform 0.08s ease, filter 0.08s ease;
+    }
+    .touch-btn:active, .touch-btn.touch-active {
+      transform: scale(0.92);
+      filter: brightness(1.3);
+    }
+    .touch-btn-fire {
+      width: 72px;
+      height: 72px;
+      background: radial-gradient(circle, #ff0055 0%, #990033 100%);
+      border: 2px solid #fff;
+      box-shadow: 0 0 18px rgba(255, 0, 85, 0.6);
+      font-size: 26px;
+    }
+    .touch-btn-row {
+      display: flex;
+      gap: 10px;
+    }
+    .touch-btn-sub {
+      width: 50px;
+      height: 50px;
+      background: rgba(18, 18, 36, 0.85);
+      border: 1.5px solid #00f3ff;
+      color: #00f3ff;
+      font-size: 18px;
+      box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+    }
+    .touch-btn-sub.active-ads {
+      background: #00f3ff;
+      color: #0c0c16;
+      box-shadow: 0 0 16px #00f3ff;
+    }
+
+    /* Responsive adjustments for mobile screens */
+    @media (max-width: 768px) {
+      .title-badge {
+        top: 8px;
+        left: 10px;
+        transform: scale(0.82);
+        transform-origin: top left;
+      }
+      .top-controls {
+        top: 8px;
+        left: auto;
+        right: 8px;
+        transform: none;
+        gap: 4px;
+      }
+      .btn-retro {
+        padding: 4px 8px;
+        font-size: 9px;
+        letter-spacing: 0.5px;
+      }
+      #btnMusic, #btnSfx, #btnCrt {
+        display: none !important;
+      }
+      #pointerPrompt {
+        display: none !important;
+      }
+      .modal-card {
+        padding: 16px;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      .modal-body {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        font-size: 12px;
+      }
+    }
 """
 
 def get_html_elements():
@@ -360,6 +499,27 @@ def get_html_elements():
         <div class="hm-line hm-tr"></div>
         <div class="hm-line hm-bl"></div>
         <div class="hm-line hm-br"></div>
+      </div>
+    </div>
+
+    <!-- Mobile Touch Controls Overlay -->
+    <div id="touchControls" class="touch-overlay" style="display: none;">
+      <!-- Left Virtual Joystick Zone -->
+      <div id="joystickZone" class="joystick-zone">
+        <div id="joystickBase" class="joystick-base">
+          <div id="joystickThumb" class="joystick-thumb"></div>
+        </div>
+      </div>
+
+      <!-- Right Action Buttons Cluster -->
+      <div class="touch-actions">
+        <button id="btnTouchFire" class="touch-btn touch-btn-fire" aria-label="Fire / Attack">💥</button>
+        <div class="touch-btn-row">
+          <button id="btnTouchAds" class="touch-btn touch-btn-sub" aria-label="Aim Down Sights">🎯</button>
+          <button id="btnTouchCar" class="touch-btn touch-btn-sub" aria-label="Enter / Exit Vehicle">🚗</button>
+          <button id="btnTouchWeapon" class="touch-btn touch-btn-sub" aria-label="Switch Weapon">🔫</button>
+          <button id="btnTouchJump" class="touch-btn touch-btn-sub" aria-label="Jump / Handbrake">⏫</button>
+        </div>
       </div>
     </div>
   </div>
@@ -413,6 +573,18 @@ def get_html_elements():
           <div class="control-row"><span>Exit Vehicle:</span> <span class="key">F or Enter</span></div>
           <div class="control-row"><span>Toggle Camera:</span> <span class="key">V (FPP / Top-Down)</span></div>
           <div class="control-row"><span>Audio Toggles:</span> <span class="key">M (Music) / N (SFX)</span></div>
+        </div>
+        <div class="control-group" style="grid-column: span 2;">
+          <h3>Mobile Touch Controls</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="control-row"><span>Move:</span> <span class="key">Left Joystick</span></div>
+            <div class="control-row"><span>Look / Aim:</span> <span class="key">Drag Right Half</span></div>
+            <div class="control-row"><span>Attack / Shoot:</span> <span class="key">💥 Fire Button</span></div>
+            <div class="control-row"><span>Enter / Jack Car:</span> <span class="key">🚗 Car Button</span></div>
+            <div class="control-row"><span>Jump / Handbrake:</span> <span class="key">⏫ Jump Button</span></div>
+            <div class="control-row"><span>Aim Down Sights:</span> <span class="key">🎯 ADS Button</span></div>
+            <div class="control-row"><span>Switch Weapon:</span> <span class="key">🔫 Gun Button</span></div>
+          </div>
         </div>
         <div class="control-group" style="grid-column: span 2; margin-top: 4px;">
           <h3>Realistic World Landmarks</h3>

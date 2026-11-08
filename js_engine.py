@@ -1,4 +1,4 @@
-# js_engine.py - Core engine, Audio, Input, 3D Math & WebGL Renderer
+# js_engine.py - Core engine, Audio, Input with Mobile Touch Virtual Controls, 3D Math & WebGL Renderer
 
 def get_js_config_and_audio():
     return r"""
@@ -57,8 +57,8 @@ def get_js_config_and_audio():
           this.initialized = true;
           const prompt = document.getElementById('pointerPrompt');
           if (prompt) {
-            prompt.textContent = 'FIRST-PERSON MOUSE LOOK ENGAGED [CLICK CANVAS / ESC TO RELEASE]';
-            setTimeout(() => { if (prompt) prompt.style.opacity = '0'; }, 3500);
+            prompt.textContent = 'CONTROLS ACTIVE [DRAG OR WASD TO MOVE]';
+            setTimeout(() => { if (prompt) prompt.style.opacity = '0'; }, 3000);
           }
         } catch (e) {
           console.warn('AudioContext not supported or blocked:', e);
@@ -401,7 +401,7 @@ def get_js_config_and_audio():
 def get_js_input_handler():
     return r"""
     /* ==========================================================================
-       3. INPUT HANDLER WITH POINTER LOCK & FIRST-PERSON CONTROLS
+       3. INPUT HANDLER WITH POINTER LOCK & MOBILE TOUCH VIRTUAL CONTROLS
        ========================================================================== */
     class InputHandler {
       constructor() {
@@ -409,23 +409,74 @@ def get_js_input_handler():
         this.prevKeys = {};
         this.mouseX = 0;
         this.mouseY = 0;
-        this.worldMouseX = 0;
-        this.worldMouseY = 0;
-        this.mouseDown = false;
-        this.rightMouseDown = false;
+        this._mouseDown = false;
+        this._rightMouseDown = false;
         this.isPointerLocked = false;
+
+        // Device detection
+        this.isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 900);
 
         // FPP Camera Angles
         this.yaw = 0;   // Horizontal look angle in radians
         this.pitch = 0; // Vertical look angle in radians [-1.42 to 1.42]
         this.mouseSensitivity = 0.0024;
+        this.touchLookSensitivity = 0.0055;
+
+        // Mobile Touch Movement & Actions
+        this.touchMoveX = 0; // -1 to 1 (analog horizontal)
+        this.touchMoveY = 0; // -1 to 1 (analog vertical)
+        this.touchSprint = false;
+        this.touchFire = false;
+        this.touchJump = false;
+        this.touchAds = false;
+        this.touchCarTrigger = false;
+        this.touchJumpTrigger = false;
+
+        // Touch Tracking Identifiers
+        this.moveTouchId = null;
+        this.lookTouchId = null;
+        this.joyBaseX = 0;
+        this.joyBaseY = 0;
+        this.lookPrevX = 0;
+        this.lookPrevY = 0;
 
         this.canvas = document.getElementById('gameCanvas');
+        this.container = document.getElementById('canvasContainer');
+        this.joyBaseEl = document.getElementById('joystickBase');
+        this.joyThumbEl = document.getElementById('joystickThumb');
+        this.touchControlsEl = document.getElementById('touchControls');
 
-        // Request Pointer Lock on canvas click
+        if (this.isTouchDevice && this.touchControlsEl) {
+          this.touchControlsEl.style.display = 'flex';
+          const pPrompt = document.getElementById('pointerPrompt');
+          if (pPrompt) pPrompt.style.display = 'none';
+        }
+
+        this.setupMouseAndPointerLock();
+        this.setupKeyboard();
+        this.setupTouchControls();
+      }
+
+      get mouseDown() {
+        return this._mouseDown || this.touchFire;
+      }
+
+      set mouseDown(val) {
+        this._mouseDown = val;
+      }
+
+      get rightMouseDown() {
+        return this._rightMouseDown || this.touchAds;
+      }
+
+      set rightMouseDown(val) {
+        this._rightMouseDown = val;
+      }
+
+      setupMouseAndPointerLock() {
         this.canvas.addEventListener('click', () => {
           audio.init();
-          if (!this.isPointerLocked && document.pointerLockElement !== this.canvas) {
+          if (!this.isTouchDevice && !this.isPointerLocked && document.pointerLockElement !== this.canvas) {
             this.canvas.requestPointerLock = this.canvas.requestPointerLock || this.canvas.mozRequestPointerLock;
             if (this.canvas.requestPointerLock) {
               this.canvas.requestPointerLock();
@@ -436,7 +487,7 @@ def get_js_input_handler():
         document.addEventListener('pointerlockchange', () => {
           this.isPointerLocked = (document.pointerLockElement === this.canvas);
           const prompt = document.getElementById('pointerPrompt');
-          if (prompt) {
+          if (prompt && !this.isTouchDevice) {
             if (this.isPointerLocked) {
               prompt.style.opacity = '0';
             } else {
@@ -446,6 +497,56 @@ def get_js_input_handler():
           }
         });
 
+        window.addEventListener('mousemove', (e) => {
+          this.mouseX = e.clientX;
+          this.mouseY = e.clientY;
+
+          if (this.isPointerLocked) {
+            const movementX = e.movementX || e.mozMovementX || 0;
+            const movementY = e.movementY || e.mozMovementY || 0;
+
+            this.yaw += movementX * this.mouseSensitivity;
+            this.pitch -= movementY * this.mouseSensitivity;
+
+            const maxPitch = 1.42;
+            if (this.pitch > maxPitch) this.pitch = maxPitch;
+            if (this.pitch < -maxPitch) this.pitch = -maxPitch;
+          } else {
+            // Drag or cursor tracking when pointer lock is not active (e.g. desktop windowed)
+            if (this._mouseDown && window.game && window.game.viewMode === 'FPP') {
+              const dx = e.movementX || 0;
+              const dy = e.movementY || 0;
+              this.yaw += dx * this.mouseSensitivity;
+              this.pitch -= dy * this.mouseSensitivity;
+              const maxPitch = 1.42;
+              if (this.pitch > maxPitch) this.pitch = maxPitch;
+              if (this.pitch < -maxPitch) this.pitch = -maxPitch;
+            }
+          }
+        });
+
+        window.addEventListener('mousedown', (e) => {
+          audio.init();
+          if (e.button === 0) this._mouseDown = true;
+          if (e.button === 2) this._rightMouseDown = true;
+        });
+
+        window.addEventListener('mouseup', (e) => {
+          if (e.button === 0) this._mouseDown = false;
+          if (e.button === 2) this._rightMouseDown = false;
+        });
+
+        window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        window.addEventListener('wheel', (e) => {
+          if (window.game && window.game.player) {
+            if (e.deltaY > 0) window.game.player.switchWeapon(1);
+            else if (e.deltaY < 0) window.game.player.switchWeapon(-1);
+          }
+        }, { passive: true });
+      }
+
+      setupKeyboard() {
         window.addEventListener('keydown', (e) => {
           audio.init();
           this.keys[e.key.toLowerCase()] = true;
@@ -474,58 +575,157 @@ def get_js_input_handler():
           this.keys[e.key.toLowerCase()] = false;
           this.keys[e.code] = false;
         });
+      }
 
-        window.addEventListener('mousemove', (e) => {
-          this.mouseX = e.clientX;
-          this.mouseY = e.clientY;
+      setupTouchControls() {
+        const joyZone = document.getElementById('joystickZone');
+        const fireBtn = document.getElementById('btnTouchFire');
+        const jumpBtn = document.getElementById('btnTouchJump');
+        const carBtn = document.getElementById('btnTouchCar');
+        const adsBtn = document.getElementById('btnTouchAds');
+        const wepBtn = document.getElementById('btnTouchWeapon');
 
-          if (this.isPointerLocked) {
-            const movementX = e.movementX || e.mozMovementX || 0;
-            const movementY = e.movementY || e.mozMovementY || 0;
+        // Touch buttons binding
+        const bindButton = (btn, onDown, onUp) => {
+          if (!btn) return;
+          btn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            audio.init();
+            btn.classList.add('touch-active');
+            onDown();
+          }, { passive: false });
 
-            this.yaw += movementX * this.mouseSensitivity;
-            this.pitch -= movementY * this.mouseSensitivity;
+          btn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            btn.classList.remove('touch-active');
+            onUp();
+          }, { passive: false });
 
-            const maxPitch = 1.42;
-            if (this.pitch > maxPitch) this.pitch = maxPitch;
-            if (this.pitch < -maxPitch) this.pitch = -maxPitch;
-          } else {
-            // Drag or cursor tracking when pointer lock is not active
-            if (this.mouseDown && window.game && window.game.viewMode === 'FPP') {
-              const dx = e.movementX || 0;
-              const dy = e.movementY || 0;
-              this.yaw += dx * this.mouseSensitivity;
-              this.pitch -= dy * this.mouseSensitivity;
+          btn.addEventListener('touchcancel', () => {
+            btn.classList.remove('touch-active');
+            onUp();
+          });
+        };
+
+        bindButton(fireBtn, () => { this.touchFire = true; }, () => { this.touchFire = false; });
+        bindButton(jumpBtn, () => { this.touchJumpTrigger = true; this.touchJump = true; this.keys[' '] = true; }, () => { this.touchJump = false; this.keys[' '] = false; });
+        bindButton(carBtn, () => { this.touchCarTrigger = true; this.keys['f'] = true; }, () => { this.keys['f'] = false; });
+        bindButton(adsBtn, () => { this.touchAds = !this.touchAds; if (adsBtn) adsBtn.classList.toggle('active-ads', this.touchAds); }, () => {});
+        bindButton(wepBtn, () => {
+          if (window.game && window.game.player) {
+            window.game.player.switchWeapon(1);
+            audio.playCash();
+          }
+        }, () => {});
+
+        // Screen Touch Listener for Virtual Joystick (Left) and Camera Aim Drag (Right)
+        window.addEventListener('touchstart', (e) => {
+          audio.init();
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const target = t.target;
+
+            // Check if touch is on a touch button
+            if (target && target.closest && target.closest('.btn-touch, .btn-retro, .modal-card')) {
+              continue;
+            }
+
+            // Left 45% of screen: Movement Joystick
+            if (t.clientX < window.innerWidth * 0.45 && this.moveTouchId === null) {
+              this.moveTouchId = t.identifier;
+              if (joyZone) {
+                const rect = joyZone.getBoundingClientRect();
+                this.joyBaseX = rect.left + rect.width / 2;
+                this.joyBaseY = rect.top + rect.height / 2;
+              } else {
+                this.joyBaseX = t.clientX;
+                this.joyBaseY = t.clientY;
+              }
+              this.handleJoystickMove(t.clientX, t.clientY);
+            }
+            // Right of screen: Camera Aim Look
+            else if (t.clientX >= window.innerWidth * 0.45 && this.lookTouchId === null) {
+              this.lookTouchId = t.identifier;
+              this.lookPrevX = t.clientX;
+              this.lookPrevY = t.clientY;
+            }
+          }
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+
+            if (t.identifier === this.moveTouchId) {
+              e.preventDefault();
+              this.handleJoystickMove(t.clientX, t.clientY);
+            } else if (t.identifier === this.lookTouchId) {
+              e.preventDefault();
+              const dx = t.clientX - this.lookPrevX;
+              const dy = t.clientY - this.lookPrevY;
+              this.lookPrevX = t.clientX;
+              this.lookPrevY = t.clientY;
+
+              this.yaw += dx * this.touchLookSensitivity;
+              this.pitch -= dy * this.touchLookSensitivity;
+
               const maxPitch = 1.42;
               if (this.pitch > maxPitch) this.pitch = maxPitch;
               if (this.pitch < -maxPitch) this.pitch = -maxPitch;
             }
           }
-        });
+        }, { passive: false });
 
-        window.addEventListener('mousedown', (e) => {
-          audio.init();
-          if (e.button === 0) this.mouseDown = true;
-          if (e.button === 2) this.rightMouseDown = true;
-        });
-
-        window.addEventListener('mouseup', (e) => {
-          if (e.button === 0) this.mouseDown = false;
-          if (e.button === 2) this.rightMouseDown = false;
-        });
-
-        window.addEventListener('contextmenu', (e) => e.preventDefault());
-
-        window.addEventListener('wheel', (e) => {
-          if (window.game && window.game.player) {
-            if (e.deltaY > 0) window.game.player.switchWeapon(1);
-            else if (e.deltaY < 0) window.game.player.switchWeapon(-1);
+        const endTouch = (e) => {
+          for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (t.identifier === this.moveTouchId) {
+              this.moveTouchId = null;
+              this.touchMoveX = 0;
+              this.touchMoveY = 0;
+              this.touchSprint = false;
+              if (this.joyThumbEl) {
+                this.joyThumbEl.style.transform = 'translate(-50%, -50%)';
+              }
+            } else if (t.identifier === this.lookTouchId) {
+              this.lookTouchId = null;
+            }
           }
-        }, { passive: true });
+        };
+
+        window.addEventListener('touchend', endTouch, { passive: false });
+        window.addEventListener('touchcancel', endTouch, { passive: false });
+      }
+
+      handleJoystickMove(clientX, clientY) {
+        let dx = clientX - this.joyBaseX;
+        let dy = clientY - this.joyBaseY;
+        const maxDist = 48;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist > maxDist) {
+          dx = (dx / dist) * maxDist;
+          dy = (dy / dist) * maxDist;
+        }
+
+        if (this.joyThumbEl) {
+          this.joyThumbEl.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        }
+
+        this.touchMoveX = dx / maxDist;
+        this.touchMoveY = dy / maxDist;
+        this.touchSprint = (dist > maxDist * 0.85);
       }
 
       isDown(key) {
-        return !!this.keys[key.toLowerCase()];
+        const k = key.toLowerCase();
+        if (k === 'w' || k === 'arrowup') return !!this.keys[k] || this.touchMoveY < -0.22;
+        if (k === 's' || k === 'arrowdown') return !!this.keys[k] || this.touchMoveY > 0.22;
+        if (k === 'a' || k === 'arrowleft') return !!this.keys[k] || this.touchMoveX < -0.22;
+        if (k === 'd' || k === 'arrowright') return !!this.keys[k] || this.touchMoveX > 0.22;
+        if (k === 'shift') return !!this.keys[k] || this.touchSprint;
+        if (k === ' ') return !!this.keys[k] || this.touchJump;
+        return !!this.keys[k];
       }
 
       wasJustPressed(key) {
@@ -778,7 +978,7 @@ def get_js_math_and_mesh():
         this.addVertex(p3[0], p3[1], p3[2], nx, ny, nz, r, g, b, a, u2, v2, matType);
 
         // Tri 2: p1, p3, p4
-        this.addVertex(p1[0], p1[1], p1[2], nx, ny, nz, r, g, b, a, u1, v1, matType);
+        this.addVertex(p1[0], p1[1], p1[2], nx, ny, nz, r, g, b, a, u1, v2, matType);
         this.addVertex(p3[0], p3[1], p3[2], nx, ny, nz, r, g, b, a, u2, v2, matType);
         this.addVertex(p4[0], p4[1], p4[2], nx, ny, nz, r, g, b, a, u1, v2, matType);
       }
@@ -848,7 +1048,7 @@ def get_js_webgl_renderer():
     class WebGLWorldRenderer {
       constructor(canvas) {
         this.canvas = canvas;
-        this.gl = canvas.getContext('webgl', { antialias: true, alpha: false, depth: true });
+        this.gl = canvas.getContext('webgl', { antialias: true, alpha: false, depth: true, powerPreference: 'high-performance' });
         if (!this.gl) {
           console.error("WebGL not supported!");
           return;
@@ -1246,4 +1446,3 @@ def get_js_webgl_renderer():
       }
     }
     """
-

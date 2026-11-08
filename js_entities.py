@@ -43,7 +43,7 @@ def get_js_vehicle_and_cockpit():
         this.isHandbraking = false;
         this.isSkidding = false;
         this.isPolice = type === 'police';
-        this.sirenActive = this.isPolice;
+        this.sirenActive = false;
         this.sirenTimer = 0;
 
         this.wrecked = false;
@@ -470,14 +470,22 @@ def get_js_player_and_viewmodel():
           if (input.isDown('a') || input.isDown('arrowleft')) steer = -1;
           if (input.isDown('d') || input.isDown('arrowright')) steer = 1;
 
-          const handbrake = input.isDown(' ');
+          if (Math.abs(input.touchMoveY) > 0.12) {
+            throttle = -input.touchMoveY;
+          }
+          if (Math.abs(input.touchMoveX) > 0.12) {
+            steer = input.touchMoveX;
+          }
+
+          const handbrake = input.isDown(' ') || input.touchJump;
           this.inVehicle.updatePhysics(dt, throttle, steer, handbrake);
 
           audio.updateEngineSound(this.inVehicle.speed / this.inVehicle.maxSpeed, true);
 
           if (input.wasJustPressed('h')) audio.playHorn();
 
-          if (input.wasJustPressed('f') || input.wasJustPressed('enter')) {
+          if (input.wasJustPressed('f') || input.wasJustPressed('enter') || input.touchCarTrigger) {
+            input.touchCarTrigger = false;
             this.exitVehicle();
           }
           return;
@@ -496,7 +504,12 @@ def get_js_player_and_viewmodel():
         if (input.isDown('a') || input.isDown('arrowleft')) strafe -= 1;
         if (input.isDown('d') || input.isDown('arrowright')) strafe += 1;
 
-        const isSprinting = input.isDown('shift') && forward > 0;
+        if (Math.abs(input.touchMoveX) > 0.05 || Math.abs(input.touchMoveY) > 0.05) {
+          forward = -input.touchMoveY;
+          strafe = input.touchMoveX;
+        }
+
+        const isSprinting = (input.isDown('shift') || input.touchSprint) && (forward > 0 || Math.hypot(forward, strafe) > 0.8);
         let maxSpeed = isSprinting ? 275 : 180;
         if (this.adsRatio > 0.5) maxSpeed *= 0.65; // Slower movement when aiming down sights
 
@@ -510,8 +523,8 @@ def get_js_player_and_viewmodel():
 
         const len = Math.hypot(moveX, moveY);
         if (len > 0.01) {
-          moveX = (moveX / len) * maxSpeed;
-          moveY = (moveY / len) * maxSpeed;
+          moveX = (moveX / len) * maxSpeed * Math.min(1.0, len);
+          moveY = (moveY / len) * maxSpeed * Math.min(1.0, len);
           this.vx = moveX;
           this.vy = moveY;
 
@@ -525,8 +538,9 @@ def get_js_player_and_viewmodel():
           this.headBobX *= 0.85;
         }
 
-        // Jump physics (Spacebar)
-        if (input.wasJustPressed(' ') && this.isGrounded) {
+        // Jump physics (Spacebar or touch jump)
+        if ((input.wasJustPressed(' ') || input.touchJumpTrigger) && this.isGrounded) {
+          input.touchJumpTrigger = false;
           this.vz = this.jumpPower;
           this.isGrounded = false;
         }
@@ -552,11 +566,12 @@ def get_js_player_and_viewmodel():
         if (input.wasJustPressed('q')) this.switchWeapon(-1);
         if (input.wasJustPressed('e')) this.switchWeapon(1);
 
-        if (input.wasJustPressed('f') || input.wasJustPressed('enter')) {
+        if (input.wasJustPressed('f') || input.wasJustPressed('enter') || input.touchCarTrigger) {
+          input.touchCarTrigger = false;
           this.tryEnterVehicle();
         }
 
-        // Fire Weapon on Left Click
+        // Fire Weapon on Left Click or Touch Fire
         if (input.mouseDown && this.fireCooldown <= 0) {
           this.attack();
         }
@@ -569,7 +584,9 @@ def get_js_player_and_viewmodel():
         this.fireCooldown = wep.fireRate;
         if (wep.ammo !== Infinity) wep.ammo--;
 
-        window.game.police.addHeat(12);
+        if (wep.name !== 'FISTS' && window.game && window.game.police) {
+          window.game.police.addHeat(2);
+        }
 
         if (wep.name === 'FISTS') {
           audio.playShoot('punch');
@@ -795,15 +812,24 @@ def get_js_ai_and_entities():
       takeDamage(amount, attacker) {
         if (this.state === 'DEAD') return;
         this.hp -= amount;
+        const isPlayerAttacker = (attacker === window.game.player) || 
+                                 (attacker && attacker.driver === window.game.player);
         if (this.hp <= 0) {
+          this.hp = 0;
           this.state = 'DEAD';
+          audio.playScream();
           if (window.game && window.game.decals) window.game.decals.addBloodSplatter(this.x, this.y);
           if (window.game) {
             window.game.pickups.push(new Pickup(this.x, this.y, 'cash'));
-            window.game.police.addHeat(35);
+            if (isPlayerAttacker) {
+              window.game.police.addHeat(30);
+            }
           }
         } else {
-          this.panic(attacker.x, attacker.y);
+          if (isPlayerAttacker && window.game && window.game.police) {
+            window.game.police.addHeat(10);
+          }
+          this.panic(attacker ? attacker.x : this.x, attacker ? attacker.y : this.y);
         }
       }
 
@@ -950,18 +976,31 @@ def get_js_ai_and_entities():
       takeDamage(amount, attacker) {
         if (!this.alive) return;
         this.hp -= amount;
+        const isPlayerAttacker = (attacker === window.game.player) || 
+                                 (attacker && attacker.driver === window.game.player);
         if (this.hp <= 0) {
           this.alive = false;
           if (window.game && window.game.decals) window.game.decals.addBloodSplatter(this.x, this.y);
           if (window.game) {
-            window.game.police.addHeat(80);
+            if (isPlayerAttacker) {
+              window.game.police.addHeat(45);
+            }
             window.game.pickups.push(new Pickup(this.x, this.y, 'smg'));
+          }
+        } else {
+          if (isPlayerAttacker && window.game && window.game.police) {
+            window.game.police.addHeat(15);
           }
         }
       }
 
       update(dt) {
         if (!this.alive) return;
+        if (!window.game || !window.game.police || window.game.police.wantedLevel === 0) {
+          this.vx *= 0.8;
+          this.vy *= 0.8;
+          return;
+        }
 
         if (this.fireCooldown > 0) this.fireCooldown -= dt;
 
@@ -1023,8 +1062,8 @@ def get_js_ai_and_entities():
         this.heat = 0;
         this.wantedLevel = 0;
         this.evading = false;
-        this.cooldownTimer = 16.0;
-        this.maxCooldown = 16.0;
+        this.cooldownTimer = 8.0;
+        this.maxCooldown = 8.0;
         this.cruisers = [];
         this.officers = [];
         this.spawnTimer = 2.0;
@@ -1041,10 +1080,10 @@ def get_js_ai_and_entities():
       updateWantedLevel() {
         const prev = this.wantedLevel;
         if (this.heat >= 500) this.wantedLevel = 5;
-        else if (this.heat >= 320) this.wantedLevel = 4;
-        else if (this.heat >= 180) this.wantedLevel = 3;
-        else if (this.heat >= 80) this.wantedLevel = 2;
-        else if (this.heat >= 20) this.wantedLevel = 1;
+        else if (this.heat >= 340) this.wantedLevel = 4;
+        else if (this.heat >= 210) this.wantedLevel = 3;
+        else if (this.heat >= 110) this.wantedLevel = 2;
+        else if (this.heat >= 45) this.wantedLevel = 1;
         else this.wantedLevel = 0;
 
         if (this.wantedLevel > prev && window.game) {
@@ -1057,12 +1096,20 @@ def get_js_ai_and_entities():
         this.heat = 0;
         this.wantedLevel = 0;
         this.evading = false;
+        this.cooldownTimer = this.maxCooldown;
         this.cruisers.forEach(c => { c.sirenActive = false; });
-        if (window.game) window.game.showFloatingNotification('WANTED LEVEL CLEARED!', '#00ff66');
+        this.cruisers = [];
+        this.officers = [];
+        if (window.game) window.game.showFloatingNotification('COPS EVADED! WANTED LEVEL CLEARED', '#00ff66');
       }
 
       update(dt) {
-        if (this.wantedLevel === 0) return;
+        if (this.wantedLevel === 0) {
+          if (this.heat > 0) {
+            this.heat = Math.max(0, this.heat - 12 * dt);
+          }
+          return;
+        }
 
         this.flashTimer += dt * 6;
         const hasSight = this.checkPoliceLineOfSight();
@@ -1070,6 +1117,7 @@ def get_js_ai_and_entities():
         if (!hasSight) {
           this.evading = true;
           this.cooldownTimer -= dt;
+          this.heat = Math.max(0, this.heat - 8 * dt);
           if (this.cooldownTimer <= 0) {
             this.clearWanted();
             return;
@@ -1080,7 +1128,7 @@ def get_js_ai_and_entities():
         }
 
         this.spawnTimer -= dt;
-        const targetCruisers = this.wantedLevel;
+        const targetCruisers = Math.min(3, this.wantedLevel);
         const activeCruisers = this.cruisers.filter(c => !c.wrecked).length;
 
         if (this.spawnTimer <= 0 && activeCruisers < targetCruisers) {
