@@ -55,6 +55,4 @@ A 3D open-world action game built with WebGL and Web Audio API, featuring First-
 | **Toggle SFX** | <kbd>N</kbd> |
 | **Game Manual** | <kbd>P</kbd> |
 
-## How to Run
 
-Simply open `index.html` in any modern web browser (Chrome, Edge, Firefox, etc.). No build tools, web servers, or external internet connection required.
